@@ -1,10 +1,14 @@
 /*jslint white: true */
-(function(root) {
+(function(global) {
 	'use strict';
+
+	if (typeof global.jkui === 'undefined') {
+		global.jkui = {};
+	}
 	
 	/**
 	 * Convenience methods for generating action maps.
-	 * 
+	 *
 	 * Example:
 	 * <code>
 	 * ActionMap.make(myView.actionMap).grid({
@@ -26,26 +30,27 @@
 		});
 	 * </code>
 	 */
-	var am = root.ActionMap = function(mergeInto, opts) {
+	var root = global.jkui,
+		am = root.ActionMap = function(mergeInto, opts) {
 			if (mergeInto instanceof root.View) { mergeInto = mergeInto.actionMap; }
 			this.map = mergeInto ? mergeInto : {};
 			opts = opts || {};
-			
+
 			var i = null, defaults = am.defaults;
-			
+
 			for (i in defaults) {
 				if (defaults.hasOwnProperty(i)) {
 					this[i] = defaults[i];
 				}
 			}
-			
+
 			for (i in opts) {
 				if (opts.hasOwnProperty(i)) {
 					this[i] = opts[i];
 				}
 			}
 		};
-	
+
 	// READ-ONLY variable that holds the last-used unique ID
 	am.uniqueID = 0,
 	// The key to store map instances in
@@ -55,31 +60,33 @@
 		// One of these is required if you want the map to be modified
 		// elements : [], // Array of elements
 		// rows : [], // Use beginning and end of these lists
-		
+
 		// Needed for almost everything
 		numPerRow : 1, // How to determine the end of the row
 		numPerPage : 1, // OPTIONAL: used with elements:, the number of elements to assume per page
 		rowsPerPage : 1, // OPTIONAL: used with rows:, the number of rows to assume per page
-		
+
 		// Optional parameters for border()
 		// left : null, // Handler for left-side elements
 		// top : null, // Handler for top-side elements
 		// bottom : null, // Handler for bottom-side elements
 		// right : null, // Handler for right-side elements
-		
+
 		// Optional parameters for addSelf()
 		// selfKey : '_self', // OPTIONAL: Key in this.map to store a reference to the original element
-		
+
 		// Optional parameters for scroll()
 		// container : null, // REQUIRED: Element to place the style property
 		pageHeight : 0, // REQUIRED: Number to increment for each page
+		scrollOffset : 0,
 		scrollProperty : 'top', // OPTIONAL: Property to scroll (numeric only)
 		scrollUnit : 'px', // OPTIONAL: Unit to scroll
 		scrollParentKey : '_scrollContainer', // OPTIONAL: Key in this.map to store the scroll parent
+		scrollDisableCache : false,
 		lastScrollValue: 0, // OPTIONAL: only set if you want to start scrolling from a different position than 0
 		useSize : false, // OPTIONAL: use the element's height to determine if it is within the viewport
 		viewportSize : 0, // OPTIONAL: the size of the scrolling viewport
-		
+
 		// Optional parameters for scroll() for pagination
 		paginateKey : '_paginate', // OPTIONAL: Key in this.map to store a reference to the paginate check function
 		lastPage: 0, // OPTIONAL: only set if you want to start scrolling from a different position than 0
@@ -88,25 +95,27 @@
 		lastPageAdjust: 0, // leave alone, this is the last-used value of the page adjust
 		imagePages: null // OPTIONAL: for use with scroll(), specify if you have a list of indexed page containers to hide
 	};
+
 	// convenience array, don't touch
-	am.instanceVars = [ 'numPerRow', 'numPerPage', 'rowsPerPage', 'pageHeight', 'scrollProperty', 
-					'scrollUnit', 'scrollParentKey', 'lastScrollValue', 'useSize', 'viewportSize', 
+	am.instanceVars = [ 'numPerRow', 'numPerPage', 'rowsPerPage', 'pageHeight', 'scrollProperty',
+					'scrollOffset', 'scrollUnit', 'scrollParentKey', 'lastScrollValue', 'useSize',
+					'viewportSize', 'scrollDisableCache',
 					'paginateKey', 'lastPage', 'pageThreshold', 'pageChangeThreshold', 'imagePages' ];
-	
+
 	/**
 	 * Convenience method for chaining.
 	 */
 	am.make = function(mergeInto, opts) {
 		return new am(mergeInto, opts);
 	};
-	
-	
+
+
 	// Begin instance methods
 	am.prototype = {
-		
+
 		/**
 		 * Prepares the options object by copying in keys from this.
-		 * 
+		 *
 		 * Protected function -- intended for merging options internally.
 		 */
 		opts : function(opts) {
@@ -114,7 +123,7 @@
 
 				var falseKeys = [ 'left', 'top', 'bottom', 'right' ],
 					i, key;
-				
+
 				for (i=falseKeys.length-1; i > -1; i--) {
 					// check if the property should be set false
 					key = falseKeys[i];
@@ -122,7 +131,7 @@
 						opts[key] = false;
 					}
 				}
-				
+
 				for (i=am.instanceVars.length-1; i > -1; i--) {
 					key = am.instanceVars[i];
 					if (opts[key]) {
@@ -131,24 +140,24 @@
 						opts[key] = this[key];
 					}
 				}
-				
+
 				return opts;
 			}
 			else {
 				return {};
 			}
 		},
-		
+
 		/**
 		 * Setup a grid of activation events.
 		 */
 		grid : function(opts) {
 			opts = this.opts(opts);
-			
+
 			var id, i, k = root.Keyboard, j, row;
-			
+
 			// treat as simple grid
-			if (opts.elements && opts.elements.length > 2) {
+			if (opts.elements && opts.elements.length > 1) {
 				var arr = opts.elements;
 				// prepare array
 				for (i = 0; i < arr.length; i++) {
@@ -165,7 +174,7 @@
 					this.map[id][k.KEY_RIGHT] = arr[i + 1];
 					this.map[id][k.KEY_LEFT] = arr[i - 1];
 				}
-				
+
 				id = arr[i].id;
 				this.map[id][k.KEY_LEFT] = arr[i - 1];
 				// Up/Down
@@ -183,21 +192,23 @@
 					}
 				}
 			}
-			// treat as rows 
+			// treat as rows
 			else if (opts.rows && opts.rows.length) {
-				
+
 				if (!opts.numPerRow) opts.numPerRow = 1;
-				
+
 				for (i = opts.rows.length-1; i > 0; i--) {
 					// remove empty row
 					if (!opts.rows[i].length) {
 						opts.rows.splice(i,1);
 					}
 				}
-				
+
+				var prevRow, newid, leftovers, nextRow;
+
 				for (i = 0; i < opts.rows.length; i++) {
 					row = opts.rows[i];
-					
+
 					for (j = 0; j < row.length; j++) {
 						// only operate if exists
 						if (typeof row[j] !== 'object') {
@@ -209,7 +220,7 @@
 						if (!this.map[id]) {
 							this.map[id] = {};
 						}
-						
+
 						// set RIGHT
 						if (j < (row.length - 1)) {
 							this.map[id][k.KEY_RIGHT] = row[j + 1];
@@ -223,23 +234,23 @@
 						if (j > 0) {
 							this.map[id][k.KEY_LEFT] = row[j - 1];
 						} else if (i > 0) {
-							var prevrow = opts.rows[i-1];
-							if (prevrow.length) {
-								this.map[id][k.KEY_LEFT] = prevrow[ prevrow.length -1 ];
+							prevRow = opts.rows[i-1];
+							if (prevRow.length) {
+								this.map[id][k.KEY_LEFT] = prevRow[ prevRow.length -1 ];
 							}
 						}
-						
+
 						// UP
 						if (j >= opts.numPerRow) {
 							this.map[id][k.KEY_UP] = row[j - opts.numPerRow];
 						} else if (i === 0) {
 							this.map[id][k.KEY_UP] = row[0];
 						} else {
-							var prevRow = opts.rows[i - 1], newid, leftovers;
+							prevRow = opts.rows[i - 1];
 							if (prevRow.length > opts.numPerRow) {
 								newid = (prevRow.length - opts.numPerRow); // range of indexes to choose from
 								leftovers = (prevRow.length % opts.numPerRow); // how many straglers there are
-								
+
 								if (leftovers === 0) {
 									newid = newid + j;
 								} else if (leftovers > j) {
@@ -247,7 +258,7 @@
 								} else {
 									newid = prevRow.length - leftovers - opts.numPerRow + j;
 								}
-								
+
 								this.map[id][k.KEY_UP] = prevRow[newid];
 							} else if (j >= prevRow.length) {
 								if (prevRow.length > 0) {
@@ -257,12 +268,12 @@
 								this.map[id][k.KEY_UP] = prevRow[j];
 							}
 						}
-						
+
 						// DOWN
 						if (j < (row.length - opts.numPerRow)) {
 							this.map[id][k.KEY_DOWN] = row[ j + opts.numPerRow ];
 						} else if (i < (opts.rows.length - 1)) {
-							var newid = j % opts.numPerRow, nextRow = opts.rows[i + 1];
+							newid = j % opts.numPerRow, nextRow = opts.rows[i + 1];
 							if (newid >= nextRow.length) {
 								this.map[id][k.KEY_DOWN] = nextRow[nextRow.length - 1];
 							} else {
@@ -272,11 +283,11 @@
 					}
 				}
 			}
-			
+
 			// chain
 			return this;
 		},
-		
+
 		/**
 		 * Adds a reference to the original element stored in each indexed map under opts.selfKey.
 		 * @param opts
@@ -285,10 +296,10 @@
 		addSelf : function(opts) {
 			opts = this.opts(opts);
 			var i, j, id, el, row;
-			
+
 			if (!opts.rows) opts.rows = [];
 			if (opts.elements) opts.rows.concat(opts.elements);
-			
+
 			for (i=opts.rows.length-1; i >= 0; i--) {
 				row = opts.rows[i];
 				for (j=row.length; j >= 0; j--) {
@@ -300,11 +311,11 @@
 					}
 				}
 			}
-			
+
 			// chain
 			return this;
 		},
-		
+
 		/**
 		 * Sets actions for the borders of the grid.
 		 * @param opts
@@ -314,7 +325,7 @@
 			// Merge defaults, save to local
 			opts = this.opts(opts);
 			var i, j, k = root.Keyboard;
-			
+
 			// Treat as standard grid
 			if (opts.elements && opts.elements.length > 0) {
 				opts.rows = [];
@@ -328,12 +339,12 @@
 					r++;
 				}
 			}
-			
+
 			// Only operate on non-empty rows
 			if (!opts.rows || opts.rows.length < 1) {
 				return this;
 			}
-			
+
 			if (opts.hasOwnProperty('top')) {
 				for (i = 0; i < opts.rows[0].length; i++) {
 					setKey(this.map, opts.rows[0][i], k.KEY_UP, opts.top);
@@ -344,7 +355,7 @@
 					if (!opts.rows[i].length)
 						continue;
 					else if (opts.rows[i].length > opts.numPerRow) {
-						for (var j=0; j < opts.rows[i].length; j++) {
+						for (j=0; j < opts.rows[i].length; j++) {
 							if ((j % opts.numPerRow) === 1) {
 								setKey(this.map, opts.rows[i][j], k.KEY_LEFT, opts.left);
 							}
@@ -359,7 +370,7 @@
 					if (!opts.rows[i].length)
 						continue;
 					else if (opts.rows[i].length > opts.numPerRow) {
-						for (var j=0; j < opts.rows[i].length; j++) {
+						for (j=0; j < opts.rows[i].length; j++) {
 							if ((j % opts.numPerRow) === 0) {
 								setKey(this.map, opts.rows[i][j], k.KEY_RIGHT, opts.right);
 							}
@@ -375,11 +386,11 @@
 					setKey(this.map, i[j], k.KEY_DOWN, opts.bottom);
 				}
 			}
-			
+
 			// chain
 			return this;
 		},
-		
+
 		/**
 		 * Adds a scrolling function.
 		 * @param opts
@@ -396,38 +407,38 @@
 			 * only) scrollUnit: 'px', // OPTIONAL: Unit to scroll scrollKey: '__scroll' //
 			 * OPTIONAL: Key in this.map to store the scroll function };
 			 */
-	
+
 			// Merge defaults, save to opts
 			opts = this.opts(opts);
-			
-			var i = 0, j = 0, curMap, id, el, curPage = -1, 
-				cachedOffset = null, cachedSize = null, maxCacheValues = 20;
-			
+
+			var i = 0, j = 0, curMap, id, el, curPage = -1,
+				cachedOffset = null, cachedSize = null, maxCacheValues = (opts.scrollDisableCache) ? 0 : 20;
+
 			// cache page numbers
 			// Treat as grid
-			if (opts.elements && opts.elements.length > 1) {
+			if (opts.elements && opts.elements.length > 0) {
 				opts.rows = [ opts.elements ];
 				opts.elements = null;
 			}
-			
+
 			// Do nothing
 			if (!opts.rows || opts.rows.length < 1) {
 				return this;
 			}
-			
-			if (!opts.offset) {
-				opts.offset = 0;
+
+			if (!opts.scrollOffset) {
+				opts.scrollOffset = 0;
 			}
-			
+
 			// replace element in map with function call
 			for (i=0; i < opts.rows.length; i++) {
 				curPage++;
-				
+
 				for (j=0; j < opts.rows[i].length; j++) {
-					
+
 					el = opts.rows[i][j];
 					id = getElementID(el);
-					
+
 					// increment the page when we hit the end of the line
 					if ((j % opts.numPerPage) === 0) {
 						if (maxCacheValues > 0) {
@@ -436,24 +447,28 @@
 							case 'top':
 							case 'marginTop':
 								cachedOffset = el.offsetTop;
-								if (opts.useSize) cachedSize = el.offsetHeight;
+								//if (opts.useSize) cachedSize = el.offsetHeight;
+								if (opts.useSize) cachedSize = getHeight(el);
 								break;
 							case 'bottom':
 							case 'marginBottom':
 								cachedOffset = el.offsetBottom;
-								if (opts.useSize) cachedSize = el.offsetHeight;
+								//if (opts.useSize) cachedSize = el.offsetHeight;
+								if (opts.useSize) cachedSize = getHeight(el);
 								break;
 							case 'left':
 							case 'marginLeft':
 								cachedOffset = el.offsetLeft;
-								if (opts.useSize) cachedSize = el.offsetWidth;
+								//if (opts.useSize) cachedSize = el.offsetWidth;
+								if (opts.useSize) cachedSize = getWidth(el);
 								break;
 							case 'right':
 							case 'marginRight':
 								cachedOffset = el.offsetRight;
-								if (opts.useSize) cachedSize = el.offsetWidth;
+								//if (opts.useSize) cachedSize = el.offsetWidth;
+								if (opts.useSize) cachedSize = getWidth(el);
 							}
-							cachedOffset -= opts.offset;
+							cachedOffset -= opts.scrollOffset;
 						} else {
 							cachedOffset = null;
 							cachedSize = null;
@@ -462,11 +477,11 @@
 							curPage++;
 						}
 					}
-				
+
 					if (!this.map.hasOwnProperty(id)) {
 						this.map[id] = {};
 					}
-					
+
 					curMap = this.map[id];
 					curMap[ am.mapInstanceKey ] = this;
 					curMap[ '_scroll' ] = am.__scroll;
@@ -476,30 +491,30 @@
 					curMap[ '_scrollSize' ] = cachedSize;
 				}
 			}//for
-			
+
 			if (opts.imagePages) {
 				curPage = -1;
-				
+
 				var outOfScope, url;
-				
+
 				for (i=0; i < opts.imagePages.length; i++) {
 					curPage++;
-					
+
 					for (j=0; j < opts.imagePages[i].length; j++) {
-						
+
 						el = opts.imagePages[i][j];
 						outOfScope = (curPage > opts.lastPage + opts.pageThreshold || curPage < opts.lastPage - opts.pageThreshold);
-						
+
 						if (j > 0 && (j % opts.numPerRow) === 0) {
 							curPage++;
 						}
-						
+
 						id = getElementID(el);
-						
+
 						if (!(id in this.map)) {
 							this.map[id] = {};
 						}
-						
+
 						switch (el.tagName) {
 							case 'IMG':
 								url = el.src;
@@ -514,17 +529,17 @@
 									}
 								}
 								break;
-								
+
 							case 'DIV':
 							case 'SPAN':
 							case 'B':
 							case 'A':
 								url = el.getAttribute('data-image-url');
-								
+
 								if (!url) {
 									url = el.href;
 								}
-						
+
 								if (outOfScope) {
 									if (el.style.backgroundImage !== '') {
 										el.style.backgroundImage = '';
@@ -535,47 +550,47 @@
 									}
 								}
 								break;
-								
+
 							default:
 								url = '';
 						}//switch
-						
+
 						this.map[id]['_bg'] = url;
-						
+
 					}
 				}
 			}
-			
+
 			// chain
 			return this;
 		},
-		
+
 		/**
 		 * Sets every element in the map with the provided key/value or values.
-		 * 
+		 *
 		 * Either of these is required:
 		 * elements: array of elements
 		 * rows: array of arrays of elements
-		 * 
+		 *
 		 * Optional:
 		 * key: the key to set
 		 * value: the key to set
-		 * values: object of keys/values to set 
-		 * 
+		 * values: object of keys/values to set
+		 *
 		 * @param object opts Object of options with the above keys set
 		 */
 		every : function(opts) {
 			if ((!opts.key || !opts.value) && !opts.values) {
 				return this;
 			}
-			
+
 			opts = this.opts(opts);
 			var id, i, j;
-			
+
 			if (opts.elements && opts.elements.length) {
 				opts.rows = [ opts.elements ];
 			}
-			
+
 			if (opts.rows && opts.rows.length) {
 				for (i = 0; i < opts.rows.length; i++) {
 					for (j = 0; j < opts.rows[i].length; j++) {
@@ -596,129 +611,147 @@
 					}
 				}
 			}
-			
+
 			// chain
 			return this;
 		}
-		
+
 	}; //prototype
-	
+
 	/**
 	 * Performs a scroll event within the context of a View object.
-	 * 
-	 * Will use the _map key to get the instance of ActionMap that holds the appropriate settings. 
+	 *
+	 * Will use the _map key to get the instance of ActionMap that holds the appropriate settings.
 	 * Intended to be used in a View's actionMap, only when the '_map' key is also set.
 	 */
 	am.__scroll = function() {
-		
-		var el = this.activeElement,  
+
+		var el = this.activeElement,
 			opts, id, curMap, curPage, cachedOffset, cachedSize, parentEl;
-		
-		if (!el || !el.hasOwnProperty('id')) {
+
+		if (!el || !('id' in el)) {
 			return;
 		}
-		
+
 		// Touch the element ONCE
 		id = el.id;
-		
+
 		// Need an active map
 		if (!this.actionMap.hasOwnProperty(id)) {
 			return;
 		}
-		
+
 		// cache values
 		curMap = this.actionMap[id];
 		// pull out values from map
 		opts = curMap[ am.mapInstanceKey ];
 		curPage  = curMap[ '_page' ];
 		parentEl = curMap[ opts.scrollParentKey ];
-		
+
 		// we need to have something to scroll!
 		if (typeof parentEl !== 'object') {
 			return;
 		}
-		
+
 		if (opts.imagePages) {
 			//am.__paginate.call(opts, curPage, curMap);
 		}
-		
+
 		// modify property before pushing
 		//cachedOffset = curPage * opts.pageHeight;
 		cachedOffset = curMap[ '_scrollOffset' ];
 		cachedSize = curMap[ '_scrollSize' ];
-		
+
 		// build if not there
 		if (cachedOffset === null) {
 			switch (opts.scrollProperty) {
 			case 'top':
 			case 'marginTop':
 				cachedOffset = el.offsetTop;
-				if (opts.useSize) cachedSize = el.offsetHeight;
+				//if (opts.useSize) cachedSize = el.offsetHeight;
+				if (opts.useSize) cachedSize = getHeight(el);
 				break;
 			case 'bottom':
 			case 'marginBottom':
 				cachedOffset = el.offsetBottom;
-				if (opts.useSize) cachedSize = el.offsetHeight;
+				//if (opts.useSize) cachedSize = el.offsetHeight;
+				if (opts.useSize) cachedSize = getHeight(el);
 				break;
 			case 'left':
 			case 'marginLeft':
 				cachedOffset = el.offsetLeft;
-				if (opts.useSize) cachedSize = el.offsetWidth;
+				//if (opts.useSize) cachedSize = el.offsetWidth;
+				if (opts.useSize) cachedSize = getWidth(el);
 				break;
 			case 'right':
 			case 'marginRight':
 				cachedOffset = el.offsetRight;
-				if (opts.useSize) cachedSize = el.offsetWidth;
+				//if (opts.useSize) cachedSize = el.offsetWidth;
+				if (opts.useSize) cachedSize = getWidth(el);
 			}
-			cachedOffset -= opts.offset;
-			// cache for later
-			curMap[ '_scrollOffset' ] = cachedOffset;
-			curMap[ '_scrollSize' ] = cachedSize;
+			cachedOffset -= opts.scrollOffset;
+
+			if (!opts.scrollDisableCache) {
+				// cache for later
+				curMap[ '_scrollOffset' ] = cachedOffset;
+				curMap[ '_scrollSize' ] = cachedSize;
+			}
 		}
-	
+
 		// try to keep object within viewport, top-aligned
 		if (opts.useSize) {
-			if (cachedSize + opts.offset < opts.viewportSize) {
-				cachedOffset = Math.max(cachedOffset, cachedOffset + opts.viewportSize - cachedHeight - opts.offset);
+			if (cachedSize + opts.scrollOffset < opts.viewportSize) {
+
+				var maxPossibleOffset = cachedOffset + opts.viewportSize - cachedSize,
+					minPossibleOffset = cachedOffset - opts.scrollOffset - (opts.viewportSize-cachedSize);
+				if (opts.lastScrollValue > maxPossibleOffset) {
+					cachedOffset = maxPossibleOffset;
+				}
+				else if (opts.lastScrollValue < minPossibleOffset) {
+					cachedOffset = minPossibleOffset;
+				}
+				else {
+					cachedOffset = opts.lastScrollValue;
+				}
 			}
 		}
-		
+
 		// check need to change
 		if (opts.lastScrollValue != cachedOffset) {
 			opts.lastScrollValue = cachedOffset;
-			
+
 			if (!am.useJQScroll) {
 				parentEl.style[opts.scrollProperty] = (-cachedOffset) + opts.scrollUnit;
 			} else {
-				var a = {}, el;
+				var a = {};
 				a[opts.scrollProperty] = (-cachedOffset) + opts.scrollUnit;
 				el = $(parentEl);
 				el.stop(true);
 				el.animate(a, 400, 'swing');
 			}
 		}
-		
+
 	};
-	
+
 	/**
 	 * Only run after a scroll
 	 * @param opts
 	 * @returns {am.Map}
 	 *
 	am.Map.prototype.paginate = function(opts) {
-		
+
 		return this;
 	};
-	
+
 	/**
-	 * Perform a paginatation event. Uses <code>this</code> to 
+	 * Perform a paginatation event. Uses <code>this</code> to
 	 * @param view
 	 * @param curPage
 	 */
 	am.__paginate = function(curPage, curMap, id) {
 		var change = curPage - this.lastPage;
 		if (change > this.pageChangeThreshold || (-change) > this.pageChangeThreshold) {
-			var from = Math.min(curPage, this.lastPage), to = Math.max(curPage, this.lastPage), 
+			var from = Math.min(curPage, this.lastPage), to = Math.max(curPage, this.lastPage),
 				parentEl, parentEls,
 				i = Math.max(from - this.pageThreshold -1, 0), iMax = Math.min(to + this.pageThreshold +1, this.imagePages.length -1),
 				curImage, j;
@@ -758,7 +791,7 @@
 			/*
 			for (; i <= iMax; i++) {
 				parentEls = this.imagePages[i];
-				
+
 				show = ( curPage - this.pageThreshold <= i && i <= curPage + this.pageThreshold );
 				for (var j=parentEls.length-1; j > -1; j--) {
 					parentEl = parentEls[j];
@@ -768,7 +801,7 @@
 	//					}
 	//					if (parentEl.style.backgroundImage.length === 0 && parentEl.disabled_bg) {
 	//						parentEl.style.backgroundImage = parentEl.disabled_bg;
-	//					} 
+	//					}
 						parentEl.style.backgroundImage = this.map[parentEl.id]['_bg'];
 					}
 					else {
@@ -784,54 +817,123 @@
 		change = this.lastPage - this.pageThreshold;
 		return (change > 0) ? change : 0;
 	};
-	
+
 	// Private tracking variable
 	var uniqueID = 0;
-	
+
 	/**
 	 * Uses a counter to generate a unique ID. The counter is private, so an ID is gauranteed
 	 * to be unique.
-	 * 
-	 * This uses an integer, so eventually it will overflow. 
+	 *
+	 * This uses an integer, so eventually it will overflow.
 	 * Upper limit is 2^53, or 9007199254740992.  Good luck!
 	 */
-	var generateUniqueID = function() {
+	function generateUniqueID () {
 		uniqueID++;
 		return "genID_" + uniqueID;
-	};
-	
+	}
+
 	/**
 	 * If the provided element has an ID already, returns it.  If not, this generates one,
 	 * sets it, and returns it.
-	 * 
+	 *
  	 * @param {Object} el
 	 */
-	var getElementID = function(el) {
+	function getElementID (el) {
 		if (typeof el === 'object' && 'id' in el) {
 			if (el.id.length > 0) {
 				return el.id;
 			} else {
-				return el.id = generateUniqueID();
+				el.id = generateUniqueID();
+				return el.id;
 			}
 		}
-		
+
 		return generateUniqueID();
-	};
-	
+	}
+
 	/**
 	 * Convenience function. I found myself doing this all the time...
-	 * 
+	 *
 	 * @param {Object} map
 	 * @param {Object} el
 	 * @param {Object} key
 	 * @param {Object} value
 	 */
-	var setKey = function(map, el, key, value) {
+	function setKey (map, el, key, value) {
 		var id = getElementID(el);
 		if (!map[id]) {
 			map[id] = {};
 		}
 		map[id][key] = value;
-	};
+	}
+
+
+	// Derived from Masonry by David DeSandro, https://github.com/desandro/vanilla-masonry
+
+	var defView = document.defaultView,
+		getStyle = defView && defView.getComputedStyle ? function( elem ) {
+			return defView.getComputedStyle( elem, null );
+		} : function( elem ) {
+			return elem.currentStyle;
+		};
+
+	function getWidth (el, isOuter) {
+		return getWH(el, 'width', isOuter);
+	}
+
+	function getHeight (el, isOuter) {
+		return getWH(el, 'height', isOuter);
+	}
+
+	// returns width/height of element, refactored getWH from jQuery
+	function getWH( elem, measure, isOuter ) {
+		// Start with offset property
+		var isWidth = measure !== 'height',
+			val = isWidth ? elem.offsetWidth : elem.offsetHeight,
+			dirA = isWidth ? 'Left' : 'Top',
+			dirB = isWidth ? 'Right' : 'Bottom',
+			computedStyle = getStyle( elem ),
+			paddingA = parseFloat( computedStyle[ 'padding' + dirA ] ) || 0,
+			paddingB = parseFloat( computedStyle[ 'padding' + dirB ] ) || 0,
+			borderA = parseFloat( computedStyle[ 'border' + dirA + 'Width' ] ) || 0,
+			borderB = parseFloat( computedStyle[ 'border' + dirB + 'Width' ] ) || 0,
+			computedMarginA = computedStyle[ 'margin' + dirA ],
+			computedMarginB = computedStyle[ 'margin' + dirB ],
+			marginA = parseFloat( computedMarginA ) || 0,
+			marginB = parseFloat( computedMarginB ) || 0;
+
+		if ( val > 0 ) {
+
+			if ( isOuter ) {
+				// outerWidth, outerHeight, add margin
+				val += marginA + marginB;
+			} else {
+				// like getting width() or height(), no padding or border
+				val -= paddingA + paddingB + borderA + borderB;
+			}
+
+		} else {
+
+			// Fall back to computed then uncomputed css if necessary
+			val = computedStyle[ measure ];
+			if ( val < 0 || val === null ) {
+				val = elem.style[ measure ] || 0;
+			}
+			// Normalize "", auto, and prepare for extra
+			val = parseFloat( val ) || 0;
+
+			if ( isOuter ) {
+				// Add padding, border, margin
+				val += paddingA + paddingB + marginA + marginB + borderA + borderB;
+			}
+		}
+
+		return val;
+	}
 	
-})(typeof root !== 'undefined' ? root : window);
+	if (typeof define === 'function' && define.amd) {
+		define( "jkui/actionmap", [], function () { return am; } );
+	}
+
+})(this);

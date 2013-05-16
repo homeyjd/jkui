@@ -1,10 +1,16 @@
 /*jslint white: true */
-(function(root) {
+(function(window) {
+	'use strict';
+
+	if (typeof window.jkui === 'undefined') {
+		window.jkui = {};
+	}
 	
 	/**
 	 * Encapsulation class for listening for keyboard and mouse events.
 	 */
-	var k = root.Keyboard =
+	var root = window.jkui,
+		k = root.Keyboard =
 	{
 		// Key map
 		KEY_DOWN	: 40,	// VK_DOWN
@@ -38,11 +44,11 @@
 		KEY_SEVEN	: 55,
 		KEY_EIGHT	: 56,
 		KEY_NINE	: 57,
-		
+
 		// Current active view
 		activeView : null,
 		preventDefault : true,
-	
+
 		/**
 		 * Internal keyhandler.
 		 *
@@ -54,10 +60,10 @@
 		handleKeyEvent : function(evt) {
 			if (k.activeView !== null) {
 				if (!evt) evt = window.event;
-				k.activeView.handleKeyEvent(evt);
-				
+				var ret = k.activeView.handleKeyEvent(evt);
+
 				// stop event from bubbling
-				if (k.preventDefault) {
+				if (ret && k.preventDefault) {
 					evt.preventDefault();
 					if (evt.stopPropagation) evt.stopPropagation();
 					if (evt.cancelBubble) evt.cancelBubble = true;
@@ -66,16 +72,16 @@
 			}
 			return true;
 		},
-	
+
 		/**
 		 * Sets the view passed here to be the lone receiver of keyboard events.
 		 *
 		 * This function will not accept anything but an object (any type) with
-		 * a method <code>handleKeyPress</code>, which will be called with the 
+		 * a method <code>handleKeyPress</code>, which will be called with the
 		 * next event.
 		 *
 		 * Whether a new activeView has been set or not, this function returns
-		 * the currently active object. Thereby, one might check if the operation 
+		 * the currently active object. Thereby, one might check if the operation
 		 * completed by checking:
 		 * <code>
 		 * var myView = { handleKeyPress: function(evt) {} };
@@ -91,17 +97,17 @@
 			}
 			return k.activeView;
 		},
-		
+
 		/**
 		 * Empty function if you need one.
 		 */
 		nullListener : function(evt) {
-			
+
 		},
-		
+
 		/**
 		 * Initializes the Manager to listen to the specified events.
-		 * 
+		 *
 		 * @param array evts (optional) An array of strings, event types to listen for, will be ['keydown','click'] if ommitted
 		 * @param DOMElement el (optional) A DOM element to listen on, will be the global <code>document</code> object if ommitted
 		 */
@@ -117,10 +123,15 @@
 			}
 			else if (typeof el.attachEvent === 'function') {
 				while (i-- > -1) {
-					el.attachEvent(evts[i], k.handleKeyEvent);
+					el.attachEvent('on' +evts[i], k.handleKeyEvent);
 				}
 			}
 		}
 	};
+	
+	
+	if (typeof define === 'function' && define.amd) {
+		define( "jkui/keyboard", [], function () { return k; } );
+	}
 
-})(typeof root !== 'undefined' ? root : window);
+})(this);
